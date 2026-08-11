@@ -26,7 +26,9 @@ ENV/
 pulse/
 
 # ── Generated artefacts (rebuild: data_ingestion.py → eda_analysis.py) ────────
-data/phonepe_pulse.db
+# phonepe_pulse.db is deliberately TRACKED (2.5 MB): Streamlit Cloud has no
+# build step to run data_ingestion.py, and pulse/ is far too large to ship.
+# Re-commit it after any re-ingestion.
 data/phonepe_summary.xlsx
 
 # ── Editors / notebooks ───────────────────────────────────────────────────────
