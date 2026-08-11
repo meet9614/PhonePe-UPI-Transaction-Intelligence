@@ -1,0 +1,35 @@
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Source data (146 MB — re-clone from github.com/PhonePe/pulse) ─────────────
+pulse/
+
+# ── Generated artefacts (rebuild: data_ingestion.py → eda_analysis.py) ────────
+data/phonepe_pulse.db
+data/phonepe_summary.xlsx
+
+# ── Editors / notebooks ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+.ipynb_checkpoints/
