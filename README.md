@@ -89,8 +89,10 @@ PhonePe-UPI-Transaction-Intelligence/
 ```bash
 git clone https://github.com/meet9614/PhonePe-UPI-Transaction-Intelligence.git
 cd PhonePe-UPI-Transaction-Intelligence
-git clone https://github.com/PhonePe/pulse.git          # 146 MB of source data
+git clone https://github.com/PhonePe/pulse.git
 ```
+
+The second clone pulls PhonePe's open data (~146 MB) into `pulse/`. It is gitignored — the pipeline reads it but never commits it.
 
 ### 2. Install
 
@@ -118,8 +120,10 @@ INFO: top_entities     : 19,133 rows inserted
 ### 4. Verify the ingestion
 
 ```bash
-pytest tests/ -v            # 42 tests: row counts, nulls, reconciliation, taxonomy
+pytest tests/ -v
 ```
+
+42 tests: row counts, nulls, duplicate keys, plausible ticket sizes, state↔national reconciliation and taxonomy stability.
 
 ### 5. Generate plots + Excel
 
