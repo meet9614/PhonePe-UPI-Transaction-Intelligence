@@ -6,7 +6,7 @@
 
 An end-to-end analytics platform built on **PhonePe's own open Pulse dataset**, covering **235B+ UPI transactions worth ₹345T** across India (2018–2024). Ingestion pipeline → SQL analysis → statistical modelling → interactive dashboard.
 
-**Live Dashboard →** *(deploy on Streamlit Cloud — see [Deployment](#-deployment))*
+**Live Dashboard → https://meet9614-phonepe-upi-transaction-intelligence-app-jnz0hf.streamlit.app/
 
 ---
 
