@@ -10,14 +10,21 @@ Outputs:
 """
 
 import sqlite3
-import pandas as pd
-import numpy as np
+import warnings
+from pathlib import Path
+
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import matplotlib.patches as mpatches
-import seaborn as sns
-from pathlib import Path
-import warnings
+import numpy as np
+import pandas as pd
+
+from analytics import (
+    merchant_adjusted_outliers,
+    merchant_ticket_correlation,
+    normalise_state,
+)
+
 warnings.filterwarnings("ignore")
 
 # ── Style ───────────────────────────────────────────────────────────────────
@@ -36,10 +43,17 @@ plt.rcParams.update({
     "axes.spines.right":False,
 })
 
-DB_PATH   = Path("data/phonepe_pulse.db")
-OUT_DIR   = Path("assets/eda_plots")
-XLSX_PATH = Path("data/phonepe_summary.xlsx")
+BASE_DIR  = Path(__file__).resolve().parent
+DB_PATH   = BASE_DIR / "data" / "phonepe_pulse.db"
+OUT_DIR   = BASE_DIR / "assets" / "eda_plots"
+XLSX_PATH = BASE_DIR / "data" / "phonepe_summary.xlsx"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+if not DB_PATH.exists():
+    raise SystemExit(
+        f"Database not found at {DB_PATH}\n"
+        "Run `python data_ingestion.py` from the project folder first."
+    )
 
 conn = sqlite3.connect(DB_PATH)
 
@@ -245,40 +259,75 @@ ax.legend(handles=patches, loc="lower right", fontsize=9)
 save(fig, "08_state_zscore.png")
 
 
-# ── Excel Export — 4-sheet formatted workbook ────────────────────────────────
+# ── Excel Export — 5-sheet formatted workbook ────────────────────────────────
 print("\n[Excel] Building workbook...")
+
+MAX_YEAR = int(df_states["year"].max())
+
+
+def write_sheet(writer, df, sheet, title, formats, widths, index=False):
+    """Write a frame with a banner title ABOVE the header row.
+
+    The header is offset by startrow=2 so the title never overwrites a column
+    name — the original version wrote the title into A1, silently destroying
+    the first column's header.
+    """
+    df.to_excel(writer, sheet_name=sheet, index=index, startrow=2)
+    ws = writer.sheets[sheet]
+    ws.write(0, 0, title, formats["title"])
+
+    cols = ([df.index.name or ""] if index else []) + list(df.columns)
+    for i, col in enumerate(cols):
+        ws.write(2, i, col, formats["hdr"])
+    for span, fmt in widths:
+        ws.set_column(span, None, fmt)
+    ws.freeze_panes(3, 1 if index else 0)
+    return ws
+
 
 with pd.ExcelWriter(XLSX_PATH, engine="xlsxwriter") as writer:
     wb = writer.book
 
-    # Formats
-    hdr_fmt   = wb.add_format({"bold":True, "bg_color":"#5f259f",
-                                "font_color":"white", "border":1})
-    num_fmt   = wb.add_format({"num_format":"#,##0",   "border":1})
-    pct_fmt   = wb.add_format({"num_format":"0.0\"%\"", "border":1})
-    amt_fmt   = wb.add_format({"num_format":"#,##0.00", "border":1})
-    red_fmt   = wb.add_format({"bg_color":"#ffe0e0", "border":1})
-    green_fmt = wb.add_format({"bg_color":"#e0ffe0", "border":1})
-    title_fmt = wb.add_format({"bold":True, "font_size":13,
-                                "font_color":"#5f259f"})
+    F = {
+        "hdr":   wb.add_format({"bold": True, "bg_color": "#5f259f",
+                                "font_color": "white", "border": 1,
+                                "align": "center", "valign": "vcenter",
+                                "text_wrap": True}),
+        "num":   wb.add_format({"num_format": "#,##0", "border": 1}),
+        "pct":   wb.add_format({"num_format": '0.0"%"', "border": 1}),
+        "amt":   wb.add_format({"num_format": "₹#,##0", "border": 1}),
+        "dec":   wb.add_format({"num_format": "#,##0.00", "border": 1}),
+        "txt":   wb.add_format({"border": 1}),
+        "title": wb.add_format({"bold": True, "font_size": 13,
+                                "font_color": "#5f259f"}),
+    }
+    red_fmt   = wb.add_format({"bg_color": "#ffe0e0", "font_color": "#9c0006"})
+    green_fmt = wb.add_format({"bg_color": "#e0ffe0", "font_color": "#006100"})
 
     # ── Sheet 1: Quarterly Summary ───────────────────────────────────────────
     q_sum = q_all.copy()
     q_sum["txn_amount_bn"] = (q_sum["txn_amount"] / 1e9).round(2)
     q_sum["txns_mn"]       = (q_sum["txn_count"]  / 1e6).round(1)
-    q_sum["qoq_pct"]       = q_sum["txns_mn"].pct_change().mul(100).round(1)
-    sheet1 = q_sum[["period","txns_mn","txn_amount_bn","qoq_pct"]].rename(columns={
-        "period":"Quarter","txns_mn":"Transactions (M)",
-        "txn_amount_bn":"Amount (₹B)","qoq_pct":"QoQ Growth %"})
-    sheet1.to_excel(writer, sheet_name="Quarterly Summary", index=False)
-    ws = writer.sheets["Quarterly Summary"]
-    ws.write("A1", "PhonePe UPI — Quarterly Transaction Summary", title_fmt)
-    ws.set_row(0, 20, title_fmt)
-    ws.set_column("A:A", 14); ws.set_column("B:D", 18)
+    q_sum["qoq_pct"]       = (q_sum["txn_count"].pct_change() * 100).round(1)
+    q_sum["avg_ticket"]    = (q_sum["txn_amount"] / q_sum["txn_count"]).round(0)
+    sheet1 = q_sum[["period", "txns_mn", "txn_amount_bn", "qoq_pct", "avg_ticket"]].rename(
+        columns={"period": "Quarter", "txns_mn": "Transactions (M)",
+                 "txn_amount_bn": "Amount (₹B)", "qoq_pct": "QoQ Growth %",
+                 "avg_ticket": "Avg Ticket (₹)"})
+    ws = write_sheet(
+        writer, sheet1, "Quarterly Summary",
+        "PhonePe UPI — Quarterly Transaction Summary", F,
+        [("A:A", None), ("B:C", F["dec"]), ("D:D", F["pct"]), ("E:E", F["amt"])])
+    ws.set_column("A:A", 14); ws.set_column("B:E", 18)
+    n1 = len(sheet1)
+    ws.conditional_format(f"D4:D{n1+3}", {"type": "cell", "criteria": "<",
+                                          "value": 0, "format": red_fmt})
+    ws.conditional_format(f"B4:B{n1+3}", {"type": "data_bar",
+                                          "bar_color": "#8247d4"})
 
-    # ── Sheet 2: State Pivot (latest year) ──────────────────────────────────
-    state_pivot = (df_states[df_states["year"] == 2024]
-                   .groupby(["state","transaction_type"])["txn_count"]
+    # ── Sheet 2: State Pivot (latest year, no longer hardcoded) ─────────────
+    state_pivot = (df_states[df_states["year"] == MAX_YEAR]
+                   .groupby(["state", "transaction_type"])["txn_count"]
                    .sum().reset_index()
                    .pivot_table(index="state", columns="transaction_type",
                                 values="txn_count", aggfunc="sum", fill_value=0))
@@ -286,33 +335,71 @@ with pd.ExcelWriter(XLSX_PATH, engine="xlsxwriter") as writer:
     state_pivot["Market Share %"] = (state_pivot["Total"] /
                                       state_pivot["Total"].sum() * 100).round(2)
     state_pivot = state_pivot.sort_values("Total", ascending=False)
-    state_pivot.to_excel(writer, sheet_name="State Pivot 2024")
-    ws2 = writer.sheets["State Pivot 2024"]
-    ws2.set_column("A:A", 38)
-    ws2.set_column("B:H", 18)
+    ws2 = write_sheet(
+        writer, state_pivot, f"State Pivot {MAX_YEAR}",
+        f"Transaction volume by state and type — {MAX_YEAR}", F,
+        [("B:H", F["num"])], index=True)
+    ws2.set_column("A:A", 38); ws2.set_column("B:H", 18)
+    ws2.conditional_format(f"I4:I{len(state_pivot)+3}",
+                           {"type": "data_bar", "bar_color": "#5f259f"})
 
     # ── Sheet 3: Transaction Type Trend ─────────────────────────────────────
-    type_trend = (df_national.groupby(["year","transaction_type"])["txn_count"]
+    type_trend = (df_national.groupby(["year", "transaction_type"])["txn_count"]
                   .sum().reset_index()
                   .pivot_table(index="year", columns="transaction_type",
                                values="txn_count", aggfunc="sum", fill_value=0))
-    type_trend.to_excel(writer, sheet_name="Type Trend by Year")
-    ws3 = writer.sheets["Type Trend by Year"]
+    ws3 = write_sheet(
+        writer, type_trend, "Type Trend by Year",
+        "Transaction mix shift by year (counts)", F,
+        [("B:G", F["num"])], index=True)
     ws3.set_column("A:G", 22)
 
-    # ── Sheet 4: Anomaly Flags ───────────────────────────────────────────────
-    anomaly_df = state_2024[["state_clean","avg_txn","z_score"]].copy()
-    anomaly_df["avg_txn"] = anomaly_df["avg_txn"].round(0)
-    anomaly_df["z_score"] = anomaly_df["z_score"].round(2)
-    anomaly_df["Flag"] = anomaly_df["z_score"].apply(
-        lambda z: "HIGH_VALUE_OUTLIER" if z > 1.5
-                  else ("LOW_VALUE_OUTLIER" if z < -1.5 else "NORMAL"))
-    anomaly_df = anomaly_df.rename(columns={
-        "state_clean":"State","avg_txn":"Avg Txn Value (₹)","z_score":"Z-Score"})
-    anomaly_df.sort_values("Z-Score", ascending=False).to_excel(
-        writer, sheet_name="Anomaly Flags", index=False)
-    ws4 = writer.sheets["Anomaly Flags"]
-    ws4.set_column("A:A", 38); ws4.set_column("B:D", 22)
+    # ── Sheet 4: Type Mix % — the actual story, as shares ────────────────────
+    type_mix = (type_trend.div(type_trend.sum(axis=1), axis=0) * 100).round(1)
+    ws4 = write_sheet(
+        writer, type_mix, "Type Mix %",
+        "Transaction mix shift by year (% of volume)", F,
+        [("B:G", F["pct"])], index=True)
+    ws4.set_column("A:G", 22)
+    ws4.conditional_format(f"B4:G{len(type_mix)+3}",
+                           {"type": "3_color_scale",
+                            "min_color": "#ffffff", "mid_color": "#c9aee6",
+                            "max_color": "#5f259f"})
+
+    # ── Sheet 5: Merchant-adjusted anomalies ────────────────────────────────
+    _latest = df_states[df_states["year"] == MAX_YEAR]
+    _base = (_latest.groupby("state")
+             .agg(txn_count=("txn_count", "sum"), txn_amount=("txn_amount", "sum"))
+             .reset_index())
+    _merch = (_latest[_latest["transaction_type"] == "Merchant payments"]
+              .groupby("state")["txn_count"].sum().rename("merchant_count").reset_index())
+    _base = _base.merge(_merch, on="state", how="left")
+    _base["merchant_count"] = _base["merchant_count"].fillna(0)
+
+    _res = merchant_adjusted_outliers(_base)
+    _res["State"] = _res["state"].map(normalise_state)
+    anomaly_df = (_res.sort_values("residual_z", ascending=False)[
+        ["State", "merchant_pct", "avg_ticket", "expected_ticket",
+         "residual", "residual_z", "flag"]]
+        .round({"merchant_pct": 1, "avg_ticket": 0, "expected_ticket": 0,
+                "residual": 0, "residual_z": 2})
+        .rename(columns={"merchant_pct": "Merchant %",
+                         "avg_ticket": "Actual Ticket (₹)",
+                         "expected_ticket": "Expected Ticket (₹)",
+                         "residual": "Residual (₹)",
+                         "residual_z": "Residual Z",
+                         "flag": "Flag"}))
+    ws5 = write_sheet(
+        writer, anomaly_df, "Anomaly Flags",
+        f"Avg ticket vs merchant mix — residual outliers ({MAX_YEAR}), "
+        f"r = {merchant_ticket_correlation(_base):.2f}", F,
+        [("B:B", F["pct"]), ("C:E", F["amt"]), ("F:F", F["dec"])])
+    ws5.set_column("A:A", 38); ws5.set_column("B:G", 20)
+    nr = len(anomaly_df) + 3
+    ws5.conditional_format(f"G4:G{nr}", {"type": "text", "criteria": "containing",
+                                         "value": "ABOVE", "format": red_fmt})
+    ws5.conditional_format(f"G4:G{nr}", {"type": "text", "criteria": "containing",
+                                         "value": "BELOW", "format": green_fmt})
 
 print(f"  ✅ Excel saved: {XLSX_PATH}")
 print("\n✅ EDA complete — 8 plots + Excel workbook generated.")

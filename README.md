@@ -1,37 +1,52 @@
 # 📲 PhonePe UPI Transaction Intelligence
 
-An end-to-end analytics platform built on **PhonePe's own open Pulse dataset**, covering **235B+ UPI transactions worth ₹345T** across India (2018–2024). The project demonstrates a complete analytics engineering workflow: ingestion pipeline → SQL analysis → Python EDA → interactive dashboard.
+[![CI](https://github.com/meet9614/PhonePe-UPI-Transaction-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/meet9614/PhonePe-UPI-Transaction-Intelligence/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)](https://www.python.org)
+[![Streamlit](https://img.shields.io/badge/streamlit-%E2%89%A51.49-ff4b4b)](https://streamlit.io)
 
-**Live Dashboard →** *(deploy on Render / Streamlit Cloud after cloning)*
+An end-to-end analytics platform built on **PhonePe's own open Pulse dataset**, covering **235B+ UPI transactions worth ₹345T** across India (2018–2024). Ingestion pipeline → SQL analysis → statistical modelling → interactive dashboard.
+
+**Live Dashboard →** *(deploy on Streamlit Cloud — see [Deployment](#-deployment))*
 
 ---
 
-## 🎯 Key Insights Surfaced
+## 🎯 Key Findings
 
-| Insight | Finding |
+| Finding | Evidence |
 |---|---|
-| Merchant payment dominance | Share grew from **10.4% (2018) → 60.8% (2024)** — UPI is now primarily a commerce rail, not just a money-transfer tool |
-| Sustained compounding growth | **Median 15.4% quarter-over-quarter** transaction growth across 6 years (mean 23.2%, skewed by the 2018–20 ramp) |
-| Top state concentration | **Maharashtra + Karnataka + Telangana** alone account for **38%** of all state-level UPI transactions |
-| High-value transaction anomalies | Manipur (z=3.08), Nagaland (2.12), Ladakh (2.07) and Mizoram (1.79) exceed **Z-score 1.5** on avg transaction value — fewer but larger payments in smaller economies |
-| User growth deceleration | YoY user growth slowed from **74% (2019) → 15% (2024)**, plateauing at **587M** registered users — market is maturing, retention > acquisition becomes the key lever |
+| **UPI's original use case is nearly dead** | Recharge & bill payments fell from **36.9% of volume (2018) → 5.7% (2024)** while merchant payments went **10.4% → 60.8%**. PhonePe's revenue base is now merchant MDR, not transfers. |
+| **Average ticket is an inverted U** | ₹1,476 (2018) → peak **₹1,822 (2020)** → **₹1,310 (2024)**, −28% from peak. UPI shifted from occasional large transfers to daily small-ticket commerce. |
+| **Volume is decoupling from value** | 2019: +278% volume vs +287% value (lockstep). 2024: **+54.5% volume vs +37.2% value.** Independent confirmation of the ticket-size story. |
+| **Rankings mostly measure population** | Per capita, **Telangana leads at 286 txns/person** and Maharashtra drops from #1 to #7. |
+| **The "anomalous" states were a statistical artefact** | Average ticket and merchant share correlate at **r = −0.84**. Z-scoring ticket size just re-flags low-merchant states. See [Anomaly detection](#-anomaly-detection-what-changed-and-why). |
+| **Adoption is one curve, not 36 stories** | Fitting a logistic per state, **Lakshadweep sits ~30 quarters (7.5 years) behind Delhi**. One number explains the volume, mix and "anomaly" gaps together. |
+| **Mass-market Android, not premium** | Apple is **2.8%** of users. The base is Xiaomi (25.1%), Samsung (19.4%), Vivo (18.1%) and Oppo (12.1%) — which constrains monetisation strategy. |
+
+### ⚠️ Two data-quality caveats
+
+- **Financial Services** goes 1.9% (2018) → 0.03% (2022) → 0.1% (2024), dipping in *absolute* terms while everything else grew 60×. That non-monotonic shape is more consistent with a taxonomy change than with behaviour.
+- **"Others"** shrank 14% in 2024 while every other category grew — likely reclassified into named buckets.
+
+Both are asserted against in `tests/test_data_quality.py::TestTaxonomy` so a future re-ingestion surfaces the break loudly.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-PhonePe/pulse (JSON)
+PhonePe/pulse (JSON)          Census of India 2011
+        │                              │
+        ▼                              ▼
+data_ingestion.py  ──► SQLite (4 tables, 32K rows)  ◄── data/state_population.csv
         │
-        ▼
-data_ingestion.py   ──► SQLite DB (4 tables, 32K+ rows)
-        │
-        ├──► analysis_queries.sql   (7 production SQL queries)
-        │
-        ├──► eda_analysis.py        (8 Matplotlib/Seaborn plots + Excel workbook)
-        │
-        └──► app.py                 (Streamlit dashboard, Plotly charts)
+        ├──► analysis_queries.sql   7 SQL queries (CTEs, window functions)
+        ├──► analytics.py           statistical models (pure, unit-tested)
+        ├──► eda_analysis.py        8 plots + 5-sheet Excel workbook
+        ├──► app.py                 Streamlit dashboard (11 charts)
+        └──► tests/                 42 tests — data quality + model correctness
 ```
+
+`analytics.py` holds the modelling logic with no Streamlit imports, so it is testable independently of the dashboard and reusable by the EDA script. Both `app.py` and `eda_analysis.py` consume it, which is why the anomaly numbers in the Excel export and the dashboard cannot drift apart.
 
 ---
 
@@ -40,63 +55,59 @@ data_ingestion.py   ──► SQLite DB (4 tables, 32K+ rows)
 ```
 PhonePe-UPI-Transaction-Intelligence/
 │
-├── data_ingestion.py        # Parses all PhonePe Pulse JSONs → SQLite
-├── analysis_queries.sql     # 7 SQL queries (CTEs, Window Functions, Z-score)
-├── eda_analysis.py          # 8 EDA visualisations + 4-sheet Excel export
-├── app.py                   # Streamlit dashboard (4 KPIs, 6 interactive charts)
+├── data_ingestion.py            # Parses PhonePe Pulse JSONs → SQLite
+├── analytics.py                 # Models: per-capita, residual anomalies, S-curve
+├── analysis_queries.sql         # 7 SQL queries (CTEs, window functions, Z-score)
+├── eda_analysis.py              # 8 EDA plots + 5-sheet Excel export
+├── app.py                       # Streamlit dashboard
+│
+├── tests/
+│   ├── test_analytics.py        # Model correctness (synthetic data, always runs)
+│   └── test_data_quality.py     # Pipeline integrity (skips without the DB)
+│
+├── .github/workflows/ci.yml     # Lint + tests on Python 3.10 / 3.11 / 3.12
+├── .streamlit/config.toml       # Theme + deploy config
+├── pytest.ini
 ├── requirements.txt
 │
-├── pulse/                   # PhonePe Pulse source data (git clone, see Setup)
+├── pulse/                       # Source data (git clone — see Setup)
 │
 ├── data/
-│   ├── phonepe_pulse.db     # Generated by data_ingestion.py  (~32K rows)
-│   └── phonepe_summary.xlsx # Generated by eda_analysis.py    (4 sheets)
+│   ├── state_population.csv     # Census 2011, reorganisation-adjusted  [tracked]
+│   ├── phonepe_pulse.db         # Generated by data_ingestion.py
+│   └── phonepe_summary.xlsx     # Generated by eda_analysis.py
 │
-└── assets/
-    └── eda_plots/
-        ├── 01_quarterly_volume.png
-        ├── 02_qoq_growth.png
-        ├── 03_txn_type_mix.png
-        ├── 04_top_states.png
-        ├── 05_user_growth.png
-        ├── 06_merchant_vs_p2p.png
-        ├── 07_moving_average.png
-        └── 08_state_zscore.png
+└── assets/eda_plots/            # 8 generated PNGs
 ```
 
 ---
 
 ## ⚙️ Setup & Run
 
-### 1. Clone repos
+### 1. Clone
 
 ```bash
-git clone https://github.com/PhonePe/pulse.git          # PhonePe's open data
-git clone https://github.com/<your-username>/PhonePe-UPI-Transaction-Intelligence.git
+git clone https://github.com/meet9614/PhonePe-UPI-Transaction-Intelligence.git
 cd PhonePe-UPI-Transaction-Intelligence
+git clone https://github.com/PhonePe/pulse.git          # 146 MB of source data
 ```
 
-### 2. Install dependencies
+### 2. Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Requires Python 3.9+ and Streamlit ≥ 1.49.** The dashboard uses the modern
-> `width="stretch"` layout API, which replaced the now-removed
-> `use_container_width` parameter. On older Streamlit builds the charts will
-> raise a `TypeError` — upgrade with `pip install -U streamlit`.
+> **Requires Python 3.10+ and Streamlit ≥ 1.49.** The dashboard uses the modern `width="stretch"` layout API, which replaced the now-removed `use_container_width`. On older builds the charts raise a `TypeError` — `pip install -U streamlit`.
 
-### 3. Ingest data
+### 3. Ingest
 
 ```bash
-python data_ingestion.py --pulse_dir ./pulse --db_path ./data/phonepe_pulse.db
+python data_ingestion.py
 ```
 
-Both flags default to those paths, so a bare `python data_ingestion.py` works
-if you cloned `pulse` into the project folder.
+Both `--pulse_dir` and `--db_path` default to `./pulse` and `./data/phonepe_pulse.db`.
 
-Expected output:
 ```
 INFO: agg_transactions : 5,174 rows inserted
 INFO: agg_users        : 1,036 rows | agg_user_devices: 6,919 rows
@@ -104,49 +115,87 @@ INFO: top_entities     : 19,133 rows inserted
 ✅ Database built: data/phonepe_pulse.db  (2.5 MB)
 ```
 
-### 4. Run EDA (plots + Excel)
+### 4. Verify the ingestion
+
+```bash
+pytest tests/ -v            # 42 tests: row counts, nulls, reconciliation, taxonomy
+```
+
+### 5. Generate plots + Excel
 
 ```bash
 python eda_analysis.py
 ```
 
-### 5. Launch dashboard
+### 6. Launch
 
 ```bash
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. The app resolves its database path relative to
-`app.py`, so it can be launched from any working directory.
+Opens at `http://localhost:8501`. Paths resolve relative to the script, so it runs from any working directory.
+
+---
+
+## 📊 Dashboard
+
+**11 charts across 7 sections**, each with a written takeaway rather than a bare visual.
+
+- **4 KPI cards** — transactions, value, users, average ticket
+- **Quarterly volume + 4Q moving average**, and QoQ growth
+- **Choropleth map** with a per-capita toggle, plus a volume-rank vs per-capita-rank table
+- **Top-N states** (respects the per-capita toggle) and **transaction type mix**
+- **Device brand share** and brand share over time
+- **Adoption S-curve** — quarters behind the leading state
+- **Anomaly scatter** — average ticket vs merchant share with the fitted line and residual flags
+- **Merchant vs P2P** stacked breakdown
+- **Sidebar** — year range, transaction types, top-N, per-capita normalisation
+
+Engineering details: `@st.cache_data` keyed on the database's mtime (re-ingesting refreshes the dashboard without a manual cache clear); empty filter states warn instead of rendering blank charts; the map degrades to ranked bars when boundaries can't be fetched.
+
+---
+
+## 🔬 Anomaly Detection: What Changed and Why
+
+The obvious approach — z-score each state's average transaction value and flag |z| > 1.5 — flagged Manipur, Nagaland, Ladakh and Mizoram as high-value outliers.
+
+They aren't outliers. **Average ticket and merchant-payment share correlate at r = −0.84.** States doing fewer merchant payments mechanically show a larger average ticket, because P2P transfers are bigger than shop payments. All four flagged states run 36–52% merchant share against a 60.8% national average, and all four are tiny — median 20.6M transactions versus 763M for the median state. The z-score was rediscovering merchant penetration and calling it an anomaly.
+
+`analytics.merchant_adjusted_outliers()` regresses average ticket on merchant share and z-scores the **residual**, so a state is only flagged when it is unusual *relative to peers with a comparable payment mix*.
+
+| | Naive z-score | Merchant-adjusted residual |
+|---|---|---|
+| Manipur | 🔴 HIGH (z = 3.08) | ✅ As expected (z = 1.4) |
+| Nagaland | 🔴 HIGH (z = 2.12) | ✅ As expected (z = 0.7) |
+| Mizoram | 🔴 HIGH (z = 1.79) | ✅ As expected (z = −0.2) |
+| Ladakh | 🔴 HIGH (z = 2.07) | ⚠️ **Above model (z = 2.6)** |
+| Assam | — | ⚠️ **Below model (z = −1.9)** |
+| Dadra & Nagar Haveli & Daman & Diu | 🔵 LOW (z = −1.96) | ⚠️ **Below model (z = −2.0)** |
+
+Three of four original flags were false positives; two genuine findings surfaced that the naive method missed entirely.
+
+---
+
+## 📈 Adoption S-Curve
+
+`analytics.fit_adoption_curve()` linearises the logistic rather than fitting it numerically: if `p(t) = 1 / (1 + exp(-(a + b·t)))` then `logit(p) = a + b·t`, so an OLS fit on the logit gives the growth rate `b` and the midpoint `t₀ = −a/b` — the quarter a state reaches 50% of its saturation ceiling. No `scipy` dependency, and the fit is interpretable.
+
+Ranking by `t₀` gives **quarters behind the leader**, which reframes the volume gaps, merchant-mix gaps and apparent small-state anomalies as one phenomenon: every state is on the same curve at a different point.
+
+Penetration is normalised against the observed maximum rather than 100%, because registered users exceed 2011 population in the leading states (population growth since 2011, plus lapsed and duplicate accounts).
 
 ---
 
 ## 🗄️ Database Schema
 
-### `agg_transactions`
-| Column | Type | Description |
+| Table | Rows | Contents |
 |---|---|---|
-| year | INTEGER | Calendar year (2018–2024) |
-| quarter | INTEGER | Quarter (1–4) |
-| state | TEXT | State name, or `'india'` for national |
-| transaction_type | TEXT | Merchant / P2P / Recharge / Financial Services / Others |
-| txn_count | INTEGER | Number of transactions |
-| txn_amount | REAL | Total value in INR |
+| `agg_transactions` | 5,174 | year, quarter, state, transaction_type, txn_count, txn_amount |
+| `agg_users` | 1,036 | year, quarter, state, registered_users, app_opens |
+| `agg_user_devices` | 6,919 | year, quarter, state, brand, user_count, percentage |
+| `top_entities` | 19,133 | entity_level (state/district/pincode), entity_name, txn_count, txn_amount |
 
-### `agg_users`
-| Column | Type | Description |
-|---|---|---|
-| year, quarter | INTEGER | Period |
-| state | TEXT | State or `'india'` |
-| registered_users | INTEGER | Cumulative registered users |
-| app_opens | INTEGER | App open events that quarter |
-
-### `top_entities`
-| Column | Type | Description |
-|---|---|---|
-| entity_level | TEXT | `state` / `district` / `pincode` |
-| entity_name | TEXT | Name of the geographic entity |
-| txn_count, txn_amount | — | Same as above |
+`state` is `'india'` for the national roll-up. 36 states/UTs otherwise.
 
 ---
 
@@ -158,39 +207,21 @@ Opens at `http://localhost:8501`. The app resolves its database path relative to
 | Q2 — Market Share | `RANK` + `SUM OVER()` | Which states dominate UPI volume? |
 | Q3 — Type Mix Shift | `CASE` pivot | Has PhonePe's revenue mix changed? |
 | Q4 — User Growth | `LAG` + cumulative `SUM OVER` | How fast is the user base expanding? |
-| Q5 — Anomaly Detection | Manual Z-score in SQL | Which states have abnormal transaction patterns? |
-| Q6 — Merchant Penetration | Multi-CASE + `RANK` | Where is the P2P → commerce shift happening fastest? |
-| Q7 — Rolling Average | `AVG OVER (ROWS BETWEEN 3 PRECEDING …)` | What is the true smoothed growth trend? |
+| Q5 — Anomaly Detection | Manual Z-score in SQL | Which states have abnormal patterns? |
+| Q6 — Merchant Penetration | Multi-`CASE` + `RANK` | Where is the P2P → commerce shift fastest? |
+| Q7 — Rolling Average | `AVG OVER (ROWS BETWEEN 3 PRECEDING …)` | What is the smoothed growth trend? |
 
 ---
 
-## 📊 Dashboard Features
+## 🧪 Testing
 
-- **4 live KPI cards** — Total transactions, Total value, Registered users, Merchant share
-- **Quarterly volume bar + 4Q moving average overlay**
-- **QoQ growth waterfall**
-- **State market share horizontal bar** (Top N configurable)
-- **Transaction type stacked area** (2018–2024 evolution)
-- **Dual-axis user growth chart** (volume + YoY%)
-- **Z-score anomaly detection table** (sortable, colour-flagged)
-- **Merchant vs P2P stacked bar** by state
-- **Sidebar filters** — year range, transaction types, top-N states
-- **Cached data layer** — `@st.cache_data` keyed on the DB's modification time, so
-  re-running `data_ingestion.py` refreshes the dashboard without a manual cache clear
-- **Graceful empty states** — clearing every filter shows a warning instead of
-  rendering blank charts or divide-by-zero KPIs
+```bash
+pytest tests/ -v
+```
 
----
+**42 tests.** `test_analytics.py` runs on synthetic data with known ground truth — planted outliers must be detected, low-merchant states must *not* be flagged (the original bug, now a regression test), logistic fits must recover known midpoints, and the GeoJSON matcher must resolve against both correctly-spelled and misspelled boundary files.
 
-## 🧯 Troubleshooting
-
-| Symptom | Cause & fix |
-|---|---|
-| `Database not found at .../data/phonepe_pulse.db` | Ingestion hasn't run yet — execute step 3 above |
-| `TypeError: got an unexpected keyword argument 'width'` | Streamlit < 1.49 — run `pip install -U streamlit` |
-| Deprecation banner about `use_container_width` | You're on an older copy of `app.py`; the current version uses `width="stretch"` |
-| Dashboard shows stale numbers after re-ingesting | Should auto-refresh via the mtime cache key; force it with **⋮ → Clear cache** |
-| Charts empty / "No data matches the current filters" | Year range excludes all rows — widen it in the sidebar |
+`test_data_quality.py` validates the ingestion: row counts, nulls, duplicate keys, quarter/year ranges, plausible ticket sizes, state↔national reconciliation within 5%, and taxonomy stability. It skips automatically when the database is absent, so CI stays green on a fresh clone.
 
 ---
 
@@ -198,26 +229,40 @@ Opens at `http://localhost:8501`. The app resolves its database path relative to
 
 | Layer | Tool |
 |---|---|
-| Data ingestion | Python · `json` · `sqlite3` |
-| SQL analysis | SQLite (Window Functions, CTEs) · MySQL-compatible |
-| EDA & viz | Pandas · NumPy · Matplotlib · Seaborn |
-| Excel export | XlsxWriter · openpyxl |
-| Dashboard | Streamlit · Plotly |
-| Deployment | Render / Streamlit Cloud |
+| Ingestion | Python · `json` · `sqlite3` |
+| SQL analysis | SQLite (window functions, CTEs) |
+| Modelling | NumPy (OLS, logistic linearisation) · Pandas |
+| EDA & viz | Matplotlib · Seaborn |
+| Excel export | XlsxWriter (conditional formats, data bars, frozen panes) |
+| Dashboard | Streamlit ≥ 1.49 · Plotly |
+| Testing | pytest · ruff · GitHub Actions |
 
 ---
 
-## 🚀 Deploy on Render (free)
+## 🚀 Deployment
 
-1. Push project to GitHub
-2. Create a **Web Service** on [render.com](https://render.com)
-3. Build command: `pip install -r requirements.txt && python data_ingestion.py --pulse_dir ./pulse --db_path ./data/phonepe_pulse.db`
-4. Start command: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
+**Streamlit Cloud** (free):
+
+1. Push to GitHub
+2. Connect the repo at [share.streamlit.io](https://share.streamlit.io), main file `app.py`
+3. The database is gitignored as a build artefact. Either commit `data/phonepe_pulse.db` (2.5 MB — under the limit) by removing that line from `.gitignore`, or add a build step that runs `data_ingestion.py`
+
+**Render:**
+
+- Build: `pip install -r requirements.txt && python data_ingestion.py`
+- Start: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
+
+---
+
+## 📚 Data Sources
+
+- **Transactions, users, devices:** [PhonePe Pulse](https://github.com/PhonePe/pulse) (open data)
+- **Population:** [Census of India 2011](https://www.census2011.co.in/states.php), adjusted for the 2014 Telangana bifurcation, the 2019 Ladakh separation and the 2020 Dadra & Nagar Haveli / Daman & Diu merger so the 36 rows align with PhonePe's state list. Provenance is documented per-row in `data/state_population.csv`; a test asserts the adjusted rows still sum to the national total.
 
 ---
 
 ## 👤 Author
 
-**Meet Kumar Sarkar**  
-MCA (Data Science & Informatics) · NIT Patna  
+**Meet Kumar Sarkar**
+MCA (Data Science & Informatics) · NIT Patna
 [LinkedIn](https://www.linkedin.com/in/meet-kumar-sarkar-04b8a2279/) · [GitHub](https://github.com/meet9614)

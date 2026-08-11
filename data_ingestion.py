@@ -14,11 +14,10 @@ Tables created:
     top_entities       — Top states, districts, pincodes per quarter
 """
 
-import os
-import json
-import sqlite3
 import argparse
+import json
 import logging
+import sqlite3
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
